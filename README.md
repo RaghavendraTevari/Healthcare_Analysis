@@ -193,5 +193,90 @@ $$;
 * **System Design:** It shows you understand the **Business Process** (Discharge → Calculate → Bill).
 * **Cleanliness:** Used a stored procedure to "simulate a real-time hospital management system."
 
+To move this from PostgreSQL to **MySQL**, we need to adjust a few syntax rules:
+
+1. **Variable Declaration:** MySQL uses `DECLARE` inside a `BEGIN...END` block, but variables don't use the `v_` prefix by requirement (though it's good practice).
+2. **Date Math:** MySQL uses `DATEDIFF(end, start)` instead of simple subtraction.
+3. **Sequences:** MySQL doesn't use `nextval`. Instead, it relies on `AUTO_INCREMENT`. Ensure your `billing` table was created with `bill_id INT AUTO_INCREMENT PRIMARY KEY`.
+4. **Delimiters:** You must change the delimiter so MySQL doesn't get confused by the semicolons inside the procedure.
+
+### MySQL Stored Procedure
+
+```sql
+DELIMITER //
+
+CREATE PROCEDURE generate_discharge_bill(IN p_admission_id INT)
+BEGIN
+    DECLARE v_days_stayed INT;
+    DECLARE v_dept_rate DECIMAL(10,2);
+    DECLARE v_base_cost DECIMAL(10,2);
+
+    -- 1. Calculate length of stay (DATEDIFF returns the difference in days)
+    -- We use GREATEST(..., 1) to ensure at least one day is billed.
+    SELECT GREATEST(DATEDIFF(discharge_date, admission_date), 1) INTO v_days_stayed
+    FROM admissions 
+    WHERE admission_id = p_admission_id;
+
+    -- 2. Determine daily rate based on department
+    SELECT 
+        CASE 
+            WHEN d.department = 'Cardiology' THEN 1500
+            WHEN d.department = 'Neurology'  THEN 1800
+            WHEN d.department = 'Oncology'   THEN 2000
+            WHEN d.department = 'Emergency'  THEN 1200
+            ELSE 1000 
+        END INTO v_dept_rate
+    FROM admissions a
+    JOIN doctors d ON a.doctor_id = d.doctor_id
+    WHERE a.admission_id = p_admission_id;
+
+    -- 3. Calculate total (Base cost + daily rate)
+    SET v_base_cost = 500 + (v_days_stayed * v_dept_rate);
+
+    -- 4. Insert into Billing table 
+    -- (Note: bill_id is omitted assuming it is AUTO_INCREMENT)
+    INSERT INTO billing (admission_id, amount, status, insurance_provider)
+    VALUES (
+        p_admission_id, 
+        v_base_cost, 
+        'Unpaid', 
+        'Pending Insurance'
+    );
+
+    -- 5. Output message
+    SELECT CONCAT('Bill generated for Admission ', p_admission_id, ': $', v_base_cost) AS StatusMessage;
+
+END //
+
+DELIMITER ;
+
+```
+
+---
+
+### Important Table Adjustment for MySQL
+
+For the script above to work smoothly, make sure your **Billing** table is set up like this:
+
+```sql
+CREATE TABLE billing (
+    bill_id INT AUTO_INCREMENT PRIMARY KEY, -- Automatically handles IDs
+    admission_id INT,
+    amount DECIMAL(10, 2),
+    status VARCHAR(20),
+    insurance_provider VARCHAR(50),
+    FOREIGN KEY (admission_id) REFERENCES admissions(admission_id)
+);
+
+```
+
+### How to call it in MySQL:
+
+```sql
+CALL generate_discharge_bill(5001);
+
+```
+
+
 
 
